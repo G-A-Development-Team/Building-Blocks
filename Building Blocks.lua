@@ -1,4 +1,17 @@
+function getDPIScale()
+    return 0.75 + (gui.GetValue("adv.dpi") * 0.25);
+end
 
+-- Script Global Variables {#ffba19, 6}
+local GlobalFont = draw.CreateFont("Bahnschrift", 28*getDPIScale())
+local GlobalBiggerFont = draw.CreateFont("Bahnschrift", 35*getDPIScale())
+local SmallGlobalFont = draw.CreateFont("Bahnschrift", 15*getDPIScale())
+local currentBlocks = {}
+local abortDrag = false
+local bool_AvailableBlocks = true
+local frame_rate = 0.0
+
+-- GUIAPI Custom Controller {#f2aeae, 272}
 function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 	local tbl = {val = 0}
 
@@ -18,12 +31,48 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 		element = nil,
 		custom_vars = custom_vars or {},
 		name = name,
-		
 		_element_pos_x = x,
 		_element_pos_y = y,
 		selected = false,
 		dragging = false,
+		_element_width = w,
+		_element_height = h,
+		MoveRestraintx = 0,
+		MoveRestrainty = 0,
+		MoveRestraintw = 0,
+		MoveRestrainth = 0,
+		maxdragx = 0,
+		maxdragy = 0,
+		maxdragwidth = 0,
+		maxdragheight = 0,
+		text = "",
+		_parent = ref,
+		_mouse_left_released = true,
+		_old_mouse_left_released = true,	
+		_mouse_hovering = false,
+		_old_mouse_hovering = false,
+		customvalue,
+		using = false,
+		CustomOptions = {
+			LastChangeX = 0,
+		},
 		
+		SetUsing = function(self, v)
+			self.using = v
+		end,
+		
+		GetUsing = function(self)
+			return self.using
+		end,
+		
+		GetCustomValue = function(self)
+			return self.customvalue
+		end,
+		
+		SetCustomValue = function(self, v)
+			self.customvalue = v
+		end,
+
 		GetDragStatus = function(self)
 			return self.dragging
 		end,
@@ -40,22 +89,18 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 			self.selected = bool
 		end,
 		
-		_element_width = w,
-		_element_height = h,
-		MoveRestraintx = 0,
-		MoveRestrainty = 0,
-		MoveRestraintw = 0,
-		MoveRestrainth = 0,
-		
 		GetMoveRestraintX = function(self)
 			return self.MoveRestraintx
 		end,
+
 		GetMoveRestraintY = function(self)
 			return self.MoveRestrainty
 		end,
+
 		GetMoveRestraintWidth = function(self)
 			return self.MoveRestraintw
 		end,
+
 		GetMoveRestraintHeight = function(self)
 			return self.MoveRestrainth
 		end,
@@ -63,23 +108,18 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 		SetMoveRestraintX = function(self, x)
 			self.MoveRestraintx = x
 		end,
+
 		SetMoveRestraintY = function(self, y)
 			self.MoveRestrainty = y
 		end,
+
 		SetMoveRestraintWidth = function(self, w)
 			self.MoveRestraintw = w
 		end,
+
 		SetMoveRestraintHeight = function(self, h)
 			self.MoveRestrainth = h
 		end,
-		maxdragx = 0,
-		maxdragy = 0,
-		maxdragwidth = 0,
-		maxdragheight = 0,
-		text = "",
-		
-		
-		_parent = ref,
 			
 		GetValue = function(self)
 			return self.element:GetValue()
@@ -147,8 +187,8 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 		SetSize = function(self, w, h)
 			self.element:SetWidth(w)
 			self.element:SetHeight(h)
-			self._element_width = width
-			self._element_height = height
+			self._element_width = w
+			self._element_height = h
 		end,
 		
 		GetSize = function(self)
@@ -207,10 +247,6 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 			self.maxdragheight = height
 		end,
 		
-		
-		_mouse_left_released = true,
-		_old_mouse_left_released = true,
-		
 		OnClick = function(self) -- you rewrite this function when creating elements
 			
 		end,
@@ -219,9 +255,7 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 			local mx, my = input.GetMousePos()
 			return is_in_rect(mx, my, x, y, x2, y2)
 		end,
-		
-		_mouse_hovering = false,
-		_old_mouse_hovering = false,
+
 		OnHovered = function(self)
 			
 		end,	
@@ -231,7 +265,6 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 	setmetatable(GuiObject, meta)
 	
 	local function _paint(x, y, x2, y2, active)
-	
 		local mx, my = input.GetMousePos()
 		local hovering = GuiObject.hovering(x, y, x2, y2)
 		
@@ -257,6 +290,7 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 
 		if GuiObject._old_mouse_hovering ~= GuiObject._mouse_hovering then
 			-- print(GuiObject._mouse_hovering)
+---@diagnostic disable-next-line: redundant-parameter
 			GuiObject:OnHovered(GuiObject._mouse_hovering)
 			GuiObject._old_mouse_hovering = GuiObject._mouse_hovering
 		end
@@ -272,8 +306,29 @@ function gui._Custom(ref, varname, name, x, y, w, h, paint, custom_vars)
 	return GuiObject
 end
 
-local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+-- Script DPI Conversion {#a8f582, 14}
+local dpis, dpi_scales = 0, {0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3}
+dpis = dpi_scales[gui.GetValue("adv.dpi")+1]
+
+local function convertDpi(number)
+    if dpis == 0.75 then
+        local s = dpis/100
+        return number * (number * s)
+    else
+        if dpis == 1 then
+            return number
+        end
+        return number * dpis
+    end
+end
+
+function center(itemW, itemH, W, H)
+	return (W/2)-(itemW/2), (H/2)-(itemH/2)
+end
+
+-- GUIAPI Base64 Decoder {#f2aeae, 15}
 local function decode(data)
+	local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
     data = string.gsub(data, '[^'..b..'=]', '')
     return (data:gsub('.', function(x)
         if (x == '=') then return '' end
@@ -288,22 +343,26 @@ local function decode(data)
     end))
 end
 
+-- GUIAPI draw FilledRect {#f2aeae, 7}
 function draw._FilledRect(x, y, x2, y2, rounded)
 	if rounded ~= nil and rounded then
-		draw.RoundedRectFill(x, y, x2, y2, 7, 6, 6, 6, 6)
+		draw.RoundedRectFill(x, y, x2, y2, 20)
 	else
 		draw.FilledRect(x, y, x2, y2)
 	end
 end
 
+-- GUIAPI draw Rect {#f2aeae, 8}
 function draw._Rect(x, y, x2, y2, rounded)
 	if rounded ~= nil and rounded then
-		draw.RoundedRect(x, y, x2, y2, 6)
+---@diagnostic disable-next-line: missing-parameter
+		draw.RoundedRect(x, y, x2, y2, 20)
 	else
 		draw.OutlinedRect(x, y, x2, y2)
 	end
 end
 
+-- GUIAPI draw Color {#f2aeae, 7}
 function draw._Color(default, modified, key)
 	if modified[key] ~= nil then
 		draw.Color(unpack(modified[key]))
@@ -312,22 +371,25 @@ function draw._Color(default, modified, key)
 	end
 end
 
+-- GUIAPI GetExist{#f2aeae, 7}
 local function GetExist(key, default)
 	if key ~= nil then
 		return key
 	else
 		return default
 	end
+	if key() == nil or key == nil then
+		return default
+	end
 end
 
-local GlobalFont = draw.CreateFont("Bahnschrift", 28)
-local SmallGlobalFont = draw.CreateFont("Bahnschrift", 15)
-
+-- GUIAPI Control Effects {#f2aeae, 4}
 gui.Effects = {
 	Hover = function(x, y, x2, y2)
 	end
 }
 
+--GUIAPI TextBox Control {#f2aeae, 22}
 function gui.TextBox(ref, varname, name, tbl, x, y, w, h)
 	return gui._Custom(ref, varname, name, x, y, w, h, function(x, y, x2, y2, active, self)
 		local Options = self.custom_vars["Options"]
@@ -351,6 +413,7 @@ function gui.TextBox(ref, varname, name, tbl, x, y, w, h)
 	})
 end
 
+--GUIAPI PictreBox Control {#f2aeae, 37}
 function gui.PictureBox(ref, varname, name, tbl, x, y, w, h)
 	local iconRGBA, iconWidth, iconHeight = common.DecodePNG(http.Get(tbl["Image"]["URL"]))
 	tbl["Image"]["URL"] = draw.CreateTexture(iconRGBA, iconWidth, iconHeight)
@@ -389,6 +452,7 @@ function gui.PictureBox(ref, varname, name, tbl, x, y, w, h)
 	})
 end
 
+--GUIAPI FilledControl Control {#f2aeae, 216}
 function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 	if tbl["Options"]["Drag"] then
 		tbl["Options"]["DragStatus"] = false
@@ -441,7 +505,7 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 			Options["Init"] = true
 		end
 		if Options["MoveRestraint"] ~= nil then
-			draw.SetScissorRect(self:GetMoveRestraintX(),self:GetMoveRestraintY(), self:GetMoveRestraintWidth(), self:GetMoveRestraintHeight());
+			draw.SetScissorRect(self:GetMoveRestraintX(),self:GetMoveRestraintY(), self:GetMoveRestraintWidth()*getDPIScale(), self:GetMoveRestraintHeight()*getDPIScale());
 		end
 		
 		draw._Color(DefaultColors, Options["Colors"], "Shadow")
@@ -463,7 +527,7 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 		if Options["Header"] ~= nil then
 			draw._Color(DefaultColors, Options["Colors"], "Header")
 			if Options["Rounded"] then
-				draw.RoundedRectFill(x, y, x2, y + Options["Header"]["Height"] + GetExist(Options["ScrollFactor"], 0), 5, 5, 5, 0, 0)
+				draw.RoundedRectFill(x, y, x2, y + Options["Header"]["Height"] + GetExist(Options["ScrollFactor"], 0), 16*getDPIScale(), 16*getDPIScale(), 16*getDPIScale(), 0, 0)
 			else
 				draw._FilledRect(x, y, x2, y + Options["Header"]["Height"] + GetExist(Options["ScrollFactor"], 0), Options["Rounded"])
 			end
@@ -473,11 +537,11 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 				draw._Color(DefaultColors, Options["Colors"], "HeaderFontColor")
 			end
 			draw.SetFont(GlobalFont)
-			draw.TextShadow(x + 40, y + 15, Options["Header"]["Text"])
+			draw.TextShadow(x + 40*getDPIScale(), y + 15*getDPIScale(), Options["Header"]["Text"])
 			
 			if Options["Header"]["StatusCircle"] ~= nil then
 				draw._Color(DefaultColors, Options["Colors"], "StatusCircle")
-				draw.FilledCircle(x + 20, y + 25, 8)
+				draw.FilledCircle(x + 20*getDPIScale(), y + 25*getDPIScale(), 8*getDPIScale())
 			end
 		end
 		
@@ -491,19 +555,19 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 		
 		if Options["SelectedOverlay"] and Options["Selected"] then
 			draw._Color(DefaultColors, Options["Colors"], "SelectedOverlay")
-			draw.RoundedRect(x - 15, y - 15, x2 + 15, y2 + 15, 15)
+---@diagnostic disable-next-line: missing-parameter
+			draw.RoundedRect(x - 10, y - 10, x2 + 10, y2 + 10, 25*getDPIScale())
 		end
 		
-		
-		if Options["InverseDrag"] then
+		if Options["InverseDrag"] and not self:GetUsing() then
 			if input.IsButtonDown(1) then
-				mouseX, mouseY = input.GetMousePos()
+				local mouseX, mouseY = input.GetMousePos()
 				if Options["DragStatus"] then
 					Options["Effects"]["InverseAdd"](mouseX - Options["dx"], mouseY - Options["dy"])
 					Options["DragStatus"] = false
 				end
-				if mouseX >= x and mouseX <= x+self:GetWidth() and mouseY >= y and mouseY <= y + y2 then
-					if mouseX >= x and mouseX <= x+self:GetWidth() and mouseY >= y and mouseY <= y + y2 then
+				if mouseX >= x and mouseX <= x+self:GetWidth()*getDPIScale() and mouseY >= y and mouseY <= y + self:GetHeight()*getDPIScale() then
+					if mouseX >= x and mouseX <= x+self:GetWidth()*getDPIScale() and mouseY >= y and mouseY <= y + self:GetHeight()*getDPIScale() then
 						Options["DragStatus"] = true
 						Options["dx"] = mouseX
 						Options["dy"] = mouseY
@@ -514,9 +578,9 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 			end
 		end
 		
-		if Options["Drag"] then
+		if Options["Drag"] and not self:GetUsing() then
 			if input.IsButtonDown(1) then
-				mouseX, mouseY = input.GetMousePos()
+				local mouseX, mouseY = input.GetMousePos()
 				local px, py = self:GetParent():GetValue()
 				if Options["DragStatus"] then
 					local newx = mouseX - Options["dx"]
@@ -540,9 +604,9 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 					self:SetPosX(newx)
 					self:SetPosY(newy)
 				end
-				if mouseX >= x and mouseX <= x+self:GetWidth() and mouseY >= y and mouseY <= y + y2 then
+				if mouseX >= x and mouseX <= x+self:GetWidth()*getDPIScale() and mouseY >= y and mouseY <= y + self:GetHeight()*getDPIScale() and not self:GetUsing() then
 					if Options["BoundsHeight"] ~= nil then
-						if mouseX >= x and mouseX <= x+self:GetWidth() and mouseY >= y and mouseY <= y + Options["BoundsHeight"] then
+						if mouseX >= x and mouseX <= x+self:GetWidth()*getDPIScale() and mouseY >= y and mouseY <= y + Options["BoundsHeight"]*getDPIScale() then
 							Options["DragStatus"] = true
 							Options["dx"] = mouseX - self:GetX()
 							Options["dy"] = mouseY - self:GetY()
@@ -560,18 +624,22 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 		end
 		if self._mouse_hovering and input.IsButtonDown(1) then
 			Options["Selected"] = true
+			self:SetSelected(true)
 			
 			
 		elseif self._mouse_hovering and input.IsButtonReleased(1) then
 			Options["Selected"] = true
+			self:SetSelected(true)
 		end
 		
 		if not self._mouse_hovering and input.IsButtonDown(1) then
 			Options["Selected"] = false
+			self:SetSelected(false)
 		end
 		
 		if not self._mouse_hovering and input.IsButtonReleased(1) then
 			Options["Selected"] = false
+			self:SetSelected(false)
 		end
 		
 		local delta = input.GetMouseWheelDelta();
@@ -597,6 +665,9 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 				Options["Effects"]["Click"]()
 			end
 		end
+		if Options["Effects"]["DrawExtra"] ~= nil then
+			Options["Effects"]["DrawExtra"](x, y, x2, y2, self, active)
+		end
 		draw.SetScissorRect(0, 0, draw.GetScreenSize())
 		if Options["DragStatus"] ~= nil then
 			self:SetDragStatus(Options["DragStatus"])
@@ -606,6 +677,7 @@ function gui.FilledControl(ref, varname, name, tbl, x, y, w, h)
 	})
 end
 
+--GUIAPI Base64Control Control {#f2aeae, 58}
 function gui.Base64Control(ref, varname, name, tbl, x, y, w, h)
 	local iconRGBA, iconWidth, iconHeight = common.DecodePNG(decode(tbl["Image"]["Base64"]))
 	tbl["Image"]["Base64"] = draw.CreateTexture(iconRGBA, iconWidth, iconHeight)
@@ -665,15 +737,13 @@ function gui.Base64Control(ref, varname, name, tbl, x, y, w, h)
 	})
 end
 
-
-local Tab = gui.Tab(gui.Reference("Settings"), "customtest", "Custom Testing")
+-- Script GUI Parents {#5e99ff, 3}
+local Tab = gui.Tab(gui.Reference("Settings"), "customtest", "Code Blocks")
 
 local window_VisualBlocks = gui.Window("block_window", "Visual Blocking", 100, 100, 1000, 800)
+window_VisualBlocks:SetActive(true)
 
-local currentBlocks = {}
-
-local abortDrag = false
-local dragging = 0
+-- Script GUI Components {#5eefff, 127}
 local background_BlockWindow = gui.FilledControl(window_VisualBlocks, "background_BlockWindow", "background_BlockWindow", { 
 	Options = {
 		Border = true,
@@ -684,7 +754,7 @@ local background_BlockWindow = gui.FilledControl(window_VisualBlocks, "backgroun
 		Effects = {
 			Hover = true,
 			Click = function()
-				print("yello")
+				
 			end,
 			InverseAdd = function(x, y)
 				for _,v in ipairs(currentBlocks) do
@@ -692,6 +762,11 @@ local background_BlockWindow = gui.FilledControl(window_VisualBlocks, "backgroun
 						if v:GetDragStatus() then
 							abortDrag = true
 							break
+						elseif v:GetUsing() ~= nil then
+							if v:GetUsing() then
+								abortDrag = true
+								break
+							end
 						end
 					end
 					abortDrag = false
@@ -711,8 +786,9 @@ local background_BlockWindow = gui.FilledControl(window_VisualBlocks, "backgroun
 						if dragging > 0 then
 							return
 						end]]
-						block:SetPosX(block:GetX() + x)
-						block:SetPosY(block:GetY() + y)
+
+						block:SetPosX(block:GetX() + x*getDPIScale())
+						block:SetPosY(block:GetY() + y*getDPIScale())
 						
 						if block:GetX() < 0 then
 							--block:SetInvisible(true)
@@ -725,7 +801,7 @@ local background_BlockWindow = gui.FilledControl(window_VisualBlocks, "backgroun
 		},
 	}
 }, 10, 40, 980, 718)
-local bool_AvailableBlocks = true
+--0, 40, 980, 718)
 local window_AvailableBlocks = gui.Window("window_AvailableBlocks", "Available Blocks", 100, 100, 200, 300)
 window_AvailableBlocks:SetInvisible(true)
 
@@ -735,7 +811,7 @@ local textbox_devSpecX = gui.TextBox(window_VisualBlocks, "textbox_devSpecX", "t
 		Effects = {
 			Hover = true,
 			Click = function()
-				print("yello")
+				
 			end,
 		},
 	}
@@ -747,7 +823,7 @@ local textbox_devSpecY = gui.TextBox(window_VisualBlocks, "textbox_devSpecY", "t
 		Effects = {
 			Hover = true,
 			Click = function()
-				print("yello")
+				
 			end,
 		},
 	}
@@ -759,146 +835,23 @@ local textbox_devSpecFPS = gui.TextBox(window_VisualBlocks, "textbox_devSpecFPS"
 		Effects = {
 			Hover = true,
 			Click = function()
-				print("yello")
+				
 			end,
 		},
 	}
 }, 25, 728, 50, 10)
 
-local function AddBlock(ref, varname, name, tbl)
-	local block =  gui.FilledControl(ref, varname, name, { 
-		Options = {
-			Border = true,
-			Rounded = true,
-			Drag = true,
-			Shadow = {
-				Intensity = 20,
-			},
-			MoveRestraint = {
-				X = 0,
-				Y = 0,
-				Width = 0,
-				Height = 0,
-			},
-			BoundsHeight = 200,
-			MaxDragOffsetX = 14,
-			MaxDragOffsetY = 44,
-			MaxDragOffsetWidth = 987,
-			MaxDragOffsetHeight = 754,
-			SelectedOverlay = true,
-			ScrollAffective = false,
-			Colors = {
-				Background = {53, 53, 53, 255},
-				Border = {51, 51, 51, 255}
-			},
-			Header = {
-				Height = 50,
-				Text = tbl["HeaderTitle"],
-				StatusCircle = {
-				
-				},
-			},
-			Effects = {
-				Hover = true,
-				Click = function()
-					print("yello")
-				end,
-			},
-		}
-	}, background_BlockWindow:GetX() + 10 + GetExist(tbl["X"], 0), background_BlockWindow:GetY() + 10 + GetExist(tbl["Y"], 0), tbl["Width"], tbl["Height"])
-	table.insert(currentBlocks, block)
-	return currentBlocks[#currentBlocks]
-end
-
-local block_begin_inactive = AddBlock(window_VisualBlocks, "block_start_inactive", "Beginning", {
-	Width = 400,
-	Height = 200,
-	X = 100,
-	Y = 300,
-	HeaderTitle = "Beginning",
-})
-
-local block_begin_inactives = AddBlock(window_VisualBlocks, "knob", "Knob", {
-	Width = 150,
-	Height = 200,
-	HeaderTitle = "Knob",
-})
-
 local block_FilledRectangle = gui.Button(window_AvailableBlocks, "Filled Rectangle", function()
 end)
-
-
-
 block_FilledRectangle:SetWidth(167)
 
 local button_ViewBlocks = gui.Button(window_VisualBlocks, "Show Available Blocks", function()
 	bool_AvailableBlocks = not bool_AvailableBlocks
 end)
-
-local frame_rate = 0.0
-local get_abs_fps = function()  
-	frame_rate = 0.9 * frame_rate + (1.0 - 0.9) * globals.AbsoluteFrameTime();
-	return math.floor((1.0 / frame_rate) + 0.5); 
-end
-
-callbacks.Register("Draw", function()
---, 100, 100, 1000, 800)
-
-	for i = 1, #currentBlocks do
-		local block = currentBlocks[i]
-		local windowX, windowY = window_VisualBlocks:GetValue()
-		block:SetMoveRestraintX(windowX + background_BlockWindow:GetX() + 1)
-		block:SetMoveRestraintY(windowY + background_BlockWindow:GetY() + 25)
-		block:SetMoveRestraintWidth(background_BlockWindow:GetWidth() - 2)
-		block:SetMoveRestraintHeight(background_BlockWindow:GetHeight() - 2)
-	end
-	
-	local mouseX, mouseY = input.GetMousePos()
-	local windowX, windowY = window_VisualBlocks:GetValue()
-	
-	if (mouseX - windowX - 10) < 0 or (mouseX - windowX - 10) > 980 or (mouseY - windowY - 10) > 770 or (mouseY - windowY - 64) < 0 then
-		textbox_devSpecX:SetText("X: Unlocated")
-		textbox_devSpecY:SetText("Y: Unlocated")
-	else
-		textbox_devSpecX:SetText("X: " .. mouseX - windowX - 10)
-		textbox_devSpecY:SetText("Y: " .. mouseY - windowY - 10)
-	end
-
-	textbox_devSpecFPS:SetText("FPS: " .. tostring(get_abs_fps()))
-
-	if bool_AvailableBlocks then
-		button_ViewBlocks:SetName("Show Available Blocks")
-		window_AvailableBlocks:SetInvisible(true)
-	else
-		button_ViewBlocks:SetName("Hide Available Blocks")
-		window_AvailableBlocks:SetInvisible(false)
-	end
-end)
-
 button_ViewBlocks:SetPosY(5)
 button_ViewBlocks:SetPosX(10)
+
 --[[
-local block_window_xml = [[
-<Window var="mymenu" name="My Menu" width="1000" height="800">
-    <Tab name="Tab 1">
-        <Groupbox name="Options">
-            <Checkbox var="enable" name="Enable" value="on">
-                <ColorPicker var="clr" value="240 30 20 255"/>
-            </Checkbox>
-            <Slider var="factor" name="Factor" desc="Determine the factor." min="0" max="100"/>
-            <Combobox var="mode" name="Mode" options=["Offensive","Defensive"]/>
-        </Groupbox>
-    </Tab>
-    <Tab name="Tab 2">
-        <Text>This tab is empty.</Text>
-    </Tab>
-</Window>
-
-local block_window = gui.XML(block_window_xml)
---]]
-
-
-
 local example = gui.Base64Control(Tab, "teste", "1", { 
 	Image = {
 		Base64 = "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",
@@ -920,151 +873,199 @@ local example = gui.Base64Control(Tab, "teste", "1", {
 		Effects = {
 			Hover = true,
 			Click = function()
-				print("yello")
+				
 			end,
 		},
 	}
 }, 10, 10, 264, 32)
+]]--
 
+local keybox_graph_window = gui.Keybox(Tab, "keybox_graph_window", "Open Graph Window Key", 0)
+keybox_graph_window:SetWidth(260)
+keybox_graph_window:SetDescription("Edit code blocks visually.")
+local keybox_graph_window_value = keybox_graph_window:GetValue();
 
---[[
---Decode base64 textures
-
-
-
-local timeout = 0
-print(#LoadedFrames)
-local function drawFrames()
-
-	for i = 1, #LoadedFrames do
-		local frame = LoadedFrames[i]
-		if timeout <= i and i == 1 then
-			draw.Color(255, 255, 255, 255)
-			draw.SetTexture(frame)
-			draw.FilledRect(100, 100, 100+720, 100+480)
-			draw.SetTexture(nil)
-		end
-		if timeout >= i*1 and timeout <= i*2 then
-			draw.Color(255, 255, 255, 255)
-			draw.SetTexture(frame)
-			draw.FilledRect(100, 100, 100+720, 100+480)
-			draw.SetTexture(nil)
-		end
-		
-		if timeout >= #LoadedFrames*1.34 then
-			timeout = 0
-		end
-	end
-	timeout = timeout + 0.19
+-- Script Global Functions {#ffba19, 49}
+local function AddBlock(ref, varname, name, tbl)
+	local block =  gui.FilledControl(ref, varname, name, { 
+		Options = {
+			Border = true,
+			Rounded = true,
+			Drag = true,
+			Shadow = {
+				Intensity = 20,
+			},
+			MoveRestraint = {
+				X = 0,
+				Y = 0,
+				Width = 0,
+				Height = 0,
+			},
+			BoundsHeight = GetExist(tbl["BoundsHeight"], 200)*getDPIScale(),
+			MaxDragOffsetX = 14*getDPIScale(),
+			MaxDragOffsetY = 44*getDPIScale(),
+			MaxDragOffsetWidth = 987,
+			MaxDragOffsetHeight = 754,
+			SelectedOverlay = true,
+			ScrollAffective = false,
+			Colors = {
+				Background = {53, 53, 53, 255},
+				Border = {51, 51, 51, 255}
+			},
+			Header = {
+				Height = 50*getDPIScale(),
+				Text = tbl["HeaderTitle"],
+				StatusCircle = {
+				
+				},
+			},
+			Effects = {
+				Hover = true,
+				Click = function()
+					
+				end,
+				DrawExtra = tbl["Draw"],
+			},
+		}
+	}, background_BlockWindow:GetX() + 10 + GetExist(tbl["X"], 0), background_BlockWindow:GetY() + 10 + GetExist(tbl["Y"], 0), tbl["Width"], tbl["Height"])
+	table.insert(currentBlocks, block)
+	return currentBlocks[#currentBlocks]
 end
 
+local get_abs_fps = function()  
+	frame_rate = 0.9 * frame_rate + (1.0 - 0.9) * globals.AbsoluteFrameTime();
+	return math.floor((1.0 / frame_rate) + 0.5); 
+end
 
+--Script GUI Components {#5eefff, 13}
+local block_blank = AddBlock(window_VisualBlocks, "block_start_inactive", "Beginning", {
+	Width = 400,
+	Height = 200,
+	X = 100,
+	Y = 300,
+	HeaderTitle = "Beginning",
+})
+
+local nodes = {
+	Knob = function(name)
+		local node = AddBlock(window_VisualBlocks, name, name, {
+			Width = 120,
+			Height = 200,
+			BoundsHeight = 60,
+			HeaderTitle = "Knob",
+			Draw = function(x, y, x2, y2, self, active)
+				local mouseX, mouseY = input.GetMousePos()
+	
+				if self:GetUsing() then
+					if self.CustomOptions["LastChangeX"] ~= x then
+						if self.CustomOptions["LastChangeX"] > x then
+							self:SetCustomValue(self:GetCustomValue() - (self.CustomOptions["LastChangeX"] - mouseX))
+						else
+							self:SetCustomValue(self:GetCustomValue() + (self.CustomOptions["LastChangeX"] + mouseX))
+						end
+					end
+				end
+
+				draw.Color(26, 26, 26, 255)
+				draw.FilledCircle(x + (60*getDPIScale()), y + (120*getDPIScale()), 53*getDPIScale())
+				
+				draw.Color(119, 170, 255, 255)
+				draw.FilledCircle(x + (60*getDPIScale()), y + (120*getDPIScale()), 10*getDPIScale())
+				
+				--draw.Color(53, 53, 53, 255)
+				--draw.FilledRect(x + 105, y + 155, x2 - 110, y2 - 10)
+				--draw.FilledRect(x + (10*getDPIScale()), y + (150*getDPIScale()), x+(115*getDPIScale()), y+(190*getDPIScale()))
+				
+				draw.Color(15, 15, 15, 120)
+				--draw.FilledCircle(x + 60, y + 120, 40)
+				draw.FilledCircle(x + (60*getDPIScale()), y + (120*getDPIScale()), 40 * getDPIScale())
+
+				if self:GetCustomValue() ~= nil then
+					if self:GetSelected() or self._mouse_hovering then
+						draw.Color(255, 255, 255, 255)
+					else
+						draw.Color(153, 153, 153, 255)
+					end
+					draw.SetFont(GlobalFont)
+					local Tw, Th = draw.GetTextSize(self:GetCustomValue())
+					local centerX, centerY = center(Tw, Th, 120*getDPIScale(), 235*getDPIScale())
+					draw.TextShadow(x + centerX, y + centerY, self:GetCustomValue())
+				end
+				
+				draw.Color(0, 0, 0, 255)
+				draw.FilledCircle(x + 80*getDPIScale(), y + 185*getDPIScale(), 10*getDPIScale())
+				
+				draw.Color(153, 153, 153, 255)
+				draw.SetFont(GlobalBiggerFont)
+				draw.TextShadow(x + 72.5*getDPIScale(), y + 172.8*getDPIScale(), "+")
+				
+				draw.Color(0, 0, 0, 255)
+				draw.FilledCircle(x + 43*getDPIScale(), y + 185*getDPIScale(), 10*getDPIScale())
+				
+				draw.Color(153, 153, 153, 255)
+				draw.SetFont(GlobalBiggerFont)
+				draw.TextShadow(x + 36.25*getDPIScale(), y + 170.8*getDPIScale(), "-")
+				
+				if self:hovering(x + 80*getDPIScale(), y + 185*getDPIScale(), x + 80*getDPIScale()+20, y + 185*getDPIScale()+20) then
+					print("on")
+				end
+				
+				if input.IsButtonReleased(1) and not self:GetDragStatus() and self:GetUsing() then
+					--self:SetUsing(false)
+				end
+				
+				if self._mouse_hovering and input.IsButtonDown(1) and not self:GetDragStatus() and not self:GetUsing() then
+					--self:SetUsing(true)
+					--self.CustomOptions["LastChangeX"] = mouseX
+				end
+			end,
+		})
+		node:SetCustomValue(14800.00)
+		return {
+			nodeData = node,
+			SetValue = function(self, value)
+				self.nodeData:SetCustomValue(value)
+			end,
+			GetValue = function(self)
+				return self.nodeData:GetCustomValue()
+			end,
+		}
+	end,
+}
+
+local block_knob = nodes.Knob("knob")
+
+-- Script Callbacks {#ff7519, 31}
 callbacks.Register("Draw", function()
-	print(timeout)
-	drawFrames()
-	--[[
-	if timeout <= 5 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[1])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 5 and timeout < 6 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[2])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 6 and timeout < 7 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[3])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 7 and timeout < 8 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[4])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 8 and timeout < 9 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[5])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 9 and timeout < 10 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[6])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 10 and timeout < 11 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[7])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 11 and timeout < 12 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[8])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 12 and timeout < 13 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[9])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 13 and timeout < 14 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[10])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 14 and timeout < 15 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[11])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 15 and timeout < 16 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[12])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 16 and timeout < 17 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[13])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 17 and timeout < 18 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[14])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 18 and timeout < 19 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[15])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-	end
-	if timeout >= 19 and timeout < 20 then
-		draw.Color(255, 255, 255, 255)
-		draw.SetTexture(LoadedFrames[16])
-		draw.FilledRect(100, 100, 100+300, 100+300)
-		draw.SetTexture(nil)
-		timeout = 0
+	window_VisualBlocks:SetOpenKey(keybox_graph_window:GetValue())
+	
+	for i = 1, #currentBlocks do
+		local block = currentBlocks[i]
+		local windowX, windowY = window_VisualBlocks:GetValue()
+		block:SetMoveRestraintX(windowX + background_BlockWindow:GetX() + (1*getDPIScale()))
+		block:SetMoveRestraintY(windowY + background_BlockWindow:GetY() + (25*getDPIScale()))
+		block:SetMoveRestraintWidth(background_BlockWindow:GetWidth() - (2*getDPIScale()))
+		block:SetMoveRestraintHeight(background_BlockWindow:GetHeight() - (2*getDPIScale()))
 	end
 	
+	local mouseX, mouseY = input.GetMousePos()
+	local windowX, windowY = window_VisualBlocks:GetValue()
 	
-	timeout = timeout + 0.08
+	if (mouseX - windowX - (10*getDPIScale())) < 0 or (mouseX - windowX - (10*getDPIScale())) > (980*getDPIScale()) or (mouseY - windowY - (10*getDPIScale())) > (770*getDPIScale()) or (mouseY - windowY - (64*getDPIScale())) < 0 then
+		textbox_devSpecX:SetText("X: Unlocated")
+		textbox_devSpecY:SetText("Y: Unlocated")
+	else
+		textbox_devSpecX:SetText("X: " .. mouseX - windowX - (10*getDPIScale()))
+		textbox_devSpecY:SetText("Y: " .. mouseY - windowY - (10*getDPIScale()))
+	end
 
+	textbox_devSpecFPS:SetText("FPS: " .. tostring(get_abs_fps()))
+
+	if bool_AvailableBlocks then
+		button_ViewBlocks:SetName("Show Available Blocks")
+		window_AvailableBlocks:SetInvisible(true)
+	else
+		button_ViewBlocks:SetName("Hide Available Blocks")
+		window_AvailableBlocks:SetInvisible(false)
+	end
 end)
---]]
-
-
